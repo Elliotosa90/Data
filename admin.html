@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QuickData — Admin</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+</head>
+<body>
+
+<header>
+  <div class="logo">Quick<span>Data</span> Admin</div>
+  <nav><span id="navAuth"><a href="#" onclick="openModal('adminAuth');return false;">Admin Login</a></span></nav>
+</header>
+
+<div id="adminAuth" class="modal-bg"><div class="modal">
+  <h3>Admin Login</h3>
+  <label>Email</label><input type="email" id="aEmail">
+  <label>Password</label><input type="password" id="aPass">
+  <button class="btn" onclick="adminLogin()">Login</button>
+  <div class="error" id="aErr"></div>
+</div></div>
+
+<div id="adminUI" style="display:none">
+  <div class="admin-tabs">
+    <button class="tab-btn active" onclick="tab('plans',this)">Plans</button>
+    <button class="tab-btn" onclick="tab('apis',this)">API Settings</button>
+    <button class="tab-btn" onclick="tab('orders',this)">Orders</button>
+    <button class="tab-btn" onclick="tab('users',this)">Users</button>
+  </div>
+
+  <!-- PLANS -->
+  <div class="tab-panel active" id="tab-plans">
+    <div class="admin-form">
+      <h2 class="sec">Add Plan</h2>
+      <label>Category</label>
+      <select id="pCat"><option value="data_plans">Data</option><option value="tv_plans">TV</option></select>
+      <label>Network / TV Type</label>
+      <select id="pNet">
+        <option value="mtn">MTN</option><option value="glo">GLO</option><option value="airtel">Airtel</option>
+        <option value="dstv">DSTV</option><option value="gotv">GOTV</option>
+      </select>
+      <label>Plan Name</label><input id="pName" placeholder="e.g. 1GB Monthly">
+      <label>Price (₦)</label><input id="pPrice" type="number">
+      <label>Validity</label><input id="pValidity" placeholder="e.g. 30 days">
+      <button class="btn" onclick="addPlan()">Add Plan</button>
+      <div class="success" id="pOk">✔ Plan added</div>
+    </div>
+    <h2 class="sec" style="margin-top:30px">Existing Plans</h2>
+    <table><thead><tr><th>Category</th><th>Network</th><th>Name</th><th>Price</th><th>Validity</th><th></th></tr></thead>
+    <tbody id="plansTable"></tbody></table>
+  </div>
+
+  <!-- APIs -->
+  <div class="tab-panel" id="tab-apis">
+    <div class="admin-form">
+      <h2 class="sec">VTU / API Settings</h2>
+      <label>Provider Name (e.g. Clubkonnect, VTPass)</label><input id="apiName">
+      <label>API Endpoint URL</label><input id="apiUrl" placeholder="https://provider.com/api/topup">
+      <label>API Key / Token</label><input id="apiKey">
+      <label style="font-size:.8rem">Extra params (JSON, use {phone} {plan} as placeholders)</label>
+      <input id="apiParams" placeholder='{"mobile":"{phone}","plan":"{plan}"}'>
+      <button class="btn" onclick="saveApi()">Save API Config</button>
+      <div class="success" id="apiOk">✔ Saved</div>
+    </div>
+    <h2 class="sec" style="margin-top:30px">Paystack Secret Key (for server-side verification)</h2>
+    <div class="admin-form">
+      <input id="skKey" placeholder="sk_test_xxx">
+      <button class="btn" onclick="saveSk()">Save Secret Key</button>
+    </div>
+  </div>
+
+  <!-- ORDERS -->
+  <div class="tab-panel" id="tab-orders">
+    <h2 class="sec">Orders</h2>
+    <table><thead><tr><th>Date</th><th>User</th><th>Plan</th><th>Target</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
+    <tbody id="ordersTable"></tbody></table>
+  </div>
+
+  <!-- USERS -->
+  <div class="tab-panel" id="tab-users">
+    <h2 class="sec">Users</h2>
+    <table><thead><tr><th>Email</th><th>Balance</th></tr></thead>
+    <tbody id="usersTable"></tbody></table>
+  </div>
+</div>
+
+<footer>Admin Panel</footer>
+
+<script>
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  appId: "YOUR_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+
+function openModal(id){ document.getElementById(id).classList.add("open"); }
+
+auth.onAuthStateChanged(async user=>{
+  if(!user) return;
+  const adminUid = (await db.ref("settings/adminUid").once("value")).val();
+  if(user.uid === adminUid){
+    document.getElementById("adminUI").style.display="block";
+    document.getElementById("navAuth").innerHTML =
+      '<a href="#" onclick="auth.signOut();return false;">Logout</a>';
+    document.getElementById("adminAuth").classList.remove("open");
+    listenAll();
+  }
+});
+function adminLogin(){
+  const e=document.getElementById("aErr"); e.style.display="none";
+  auth.signInWithEmailAndPassword(document.getElementById("aEmail").value,
+    document.getElementById("aPass").value).catch(x=>{e.textContent=x.message;e.style.display="block";});
+}
+function tab(name, btn){
+  document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+  document.querySelectorAll(".tab-panel").forEach(p=>p.classList.remove("active"));
+  btn.classList.add("active");
+  document.getElementById("tab-"+name).classList.add("active");
+}
+
+function addPlan(){
+  const cat=document.getElementById("pCat").value;
+  db.ref(cat).push({
+    network: cat==="data_plans" ? document.getElementById("pNet").value : "",
+    tvType:  cat==="tv_plans"   ? document.getElementById("pNet").value : "",
+    name:    document.getElementById("pName").value,
+    price:   Number(document.getElementById("pPrice").value),
+    validity:document.getElementById("pValidity").value
+  });
+  document.getElementById("pOk").style.display="block";
+  setTimeout(()=>document.getElementById("pOk").style.display="none",1500);
+}
+function listenAll(){
+  ["data_plans","tv_plans"].forEach(cat=>{
+    db.ref(cat).on("value", snap=>{
+      const tb=document.getElementById("plansTable"); tb.innerHTML="";
+      snap.forEach(p=>{
+        const v=p.val();
+        tb.insertAdjacentHTML("beforeend",
+          `<tr><td>${cat==="data_plans"?"Data":"TV"}</td><td>${v.network||v.tvType}</td>
+          <td>${v.name}</td><td>₦${v.price}</td><td>${v.validity||""}</td>
+          <td><button class="btn btn-red" onclick="delPlan('${cat}','${p.key}')">Delete</button></td></tr>`);
+      });
+    });
+  });
+  db.ref("orders").orderByChild("timestamp").limitToLast(200).on("value", snap=>{
+    const tb=document.getElementById("ordersTable"); tb.innerHTML="";
+    const arr=[]; snap.forEach(o=>arr.push({key:o.key,...o.val()}));
+    arr.reverse().forEach(o=>{
+      tb.insertAdjacentHTML("beforeend",
+        `<tr><td>${new Date(o.timestamp).toLocaleString()}</td><td>${o.email}</td>
+        <td>${o.planName}</td><td>${o.target}</td><td>₦${o.amount}</td><td>${o.status}</td>
+        <td>${o.status==="pending"?`<button class="btn btn-green" onclick="fulfil('${o.key}')">Fulfil</button>`:"—"}</td></tr>`);
+    });
+  });
+  db.ref("users").on("value", snap=>{
+    const tb=document.getElementById("usersTable"); tb.innerHTML="";
+    snap.forEach(u=>{
+      tb.insertAdjacentHTML("beforeend",
+        `<tr><td>${u.val().email||u.key}</td><td>₦${(u.val().balance||0).toLocaleString()}</td></tr>`);
+    });
+  });
+  db.ref("settings/api").once("value").then(s=>{
+    const v=s.val()||{};
+    document.getElementById("apiName").value=v.name||"";
+    document.getElementById("apiUrl").value=v.url||"";
+    document.getElementById("apiKey").value=v.key||"";
+    document.getElementById("apiParams").value=JSON.stringify(v.params||{});
+    document.getElementById("skKey").value=(s.val()&&s.val().sk)||"";
+  });
+}
+function delPlan(cat,key){ if(confirm("Delete this plan?")) db.ref(cat+"/"+key).remove(); }
+function saveApi(){
+  let params={}; try{ params=JSON.parse(document.getElementById("apiParams").value||"{}"); }catch(e){}
+  db.ref("settings/api").set({
+    name:document.getElementById("apiName").value,
+    url:document.getElementById("apiUrl").value,
+    key:document.getElementById("apiKey").value,
+    params:params
+  }).then(()=>{document.getElementById("apiOk").style.display="block";
+    setTimeout(()=>document.getElementById("apiOk").style.display="none",1500);});
+}
+function saveSk(){ db.ref("settings/api/sk").set(document.getElementById("skKey").value); }
+function fulfil(orderKey){
+  // Fulfil via configured VTU API. NOTE: browser CORS will usually block direct calls;
+  // in production, run this from a server/cloud function using the stored API key.
+  db.ref("orders/"+orderKey).once("value").then(s=>{
+    const o=s.val();
+    db.ref("settings/api").once("value").then(api=>{
+      const a=api.val()||{};
+      if(!a.url){ alert("No API configured. Marking fulfilled manually."); return db.ref("orders/"+orderKey+"/status").set("manual"); }
+      let body=JSON.stringify(a.params||{}).replace("{phone}",o.target).replace("{plan}",o.planKey);
+      fetch(a.url,{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+a.key},body})
+        .then(r=>r.json()).then(()=>db.ref("orders/"+orderKey+"/status").set("fulfilled"))
+        .catch(e=>{ alert("API call failed (CORS?): "+e.message); db.ref("orders/"+orderKey+"/status").set("manual"); });
+    });
+  });
+}
+</script>
+</body>
+</html>
