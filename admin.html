@@ -105,21 +105,6 @@ const auth = firebase.auth();
 
 function openModal(id){ document.getElementById(id).classList.add("open"); }
 
-auth.onAuthStateChanged(async user=>{
-  if(!user) return;
-  const adminUid = (await db.ref("settings/adminUid").once("value")).val();
-  if(user.uid === adminUid){
-    document.getElementById("adminUI").style.display="block";
-    document.getElementById("navAuth").innerHTML =
-      '<a href="#" onclick="auth.signOut();return false;">Logout</a>';
-    document.getElementById("adminAuth").classList.remove("open");
-    listenAll();
-  }
-});
-function showErr(msg){
-  const e=document.getElementById("aErr");
-  e.textContent = msg; e.style.display = "block";
-}
 
 function adminLogin(){
   const e=document.getElementById("aErr"); e.style.display="none";
