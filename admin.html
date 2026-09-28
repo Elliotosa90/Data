@@ -104,6 +104,10 @@ const db = firebase.database();
 const auth = firebase.auth();
 
 function openModal(id){ document.getElementById(id).classList.add("open"); }
+  function showErr(msg){
+  const e=document.getElementById("aErr");
+  e.textContent = msg; e.style.display = "block";
+}
 
 
 function adminLogin(){
