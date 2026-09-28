@@ -220,32 +220,7 @@ function confirmBuy(key, plan, cat){
 }
 
 /* ---------- Paystack funding ---------- */
-function openFund(){ openModal("fundModal"); }
-function paystackFund(){
-  if(!currentUser) return openModal("authModal");
-  const amt = Math.floor(Number(document.getElementById("fundAmount").value));
-  if(!amt || amt < 100) return alert("Minimum funding is ₦100.");
-  try {
-    const paystack = PaystackPop.init({
-      key: PAYSTACK_PUBLIC_KEY,
-      email: currentUser.email
-    });
-    paystack.newTransaction({
-      amount: amt * 100, // kobo
-      onSuccess: function(response){
-        db.ref("users/"+currentUser.uid+"/balance").transaction(b=>(b||0)+amt);
-        db.ref("users/"+currentUser.uid+"/transactions").push({
-          type:"funding", amount:amt, ref:response.reference, ts:Date.now()
-        });
-        closeModal("fundModal");
-        alert("Wallet funded successfully! Ref: " + response.reference);
-      },
-      onCancel: function(){ alert("Payment window closed."); }
-    });
-  } catch(e) {
-    alert("Payment error: " + e.message);
-  }
-}
+https://elliotosa90.github.io/Data
 </script>
 </body>
 </html>
