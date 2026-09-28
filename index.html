@@ -1,1 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QuickData — Buy Data & Recharge TV</title>
+<link rel="stylesheet" href="style.css">
+<!-- Firebase compat SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- Paystack -->
+<script src="https://js.paystack.co/v2/inline.js"></script>
+</head>
+<body>
 
+<header>
+  <div class="logo">Quick<span>Data</span></div>
+  <nav>
+    <a href="#data">Data</a><a href="#tv">TV</a>
+    <span id="navAuth"><a href="#" onclick="openModal('authModal');return false;">Login / Register</a></span>
+  </nav>
+</header>
+
+<div class="hero">
+  <h1>Buy <b>Data</b> & Recharge <b>TV</b> Instantly</h1>
+  <p>MTN • GLO • Airtel data plans • DSTV • GOTV subscriptions — paid from your wallet.</p>
+  <div class="wallet-bar" id="walletBar" style="display:none">
+    <div class="wallet-chip">Wallet: <span id="walletBalance">₦0.00</span></div>
+    <button class="btn" onclick="openFund()">Fund Wallet</button>
+    <button class="btn btn-outline" onclick="logout()">Logout</button>
+  </div>
+</div>
+
+<section class="services" id="data">
+  <h2 class="sec">Data Plans</h2>
+  <div class="grid" id="dataGrid"><p class="muted">Loading plans…</p></div>
+</section>
+
+<section class="services" id="tv">
+  <h2 class="sec">TV Subscriptions</h2>
+  <div class="grid" id="tvGrid"><p class="muted">Loading plans…</p></div>
+</section>
+
+<footer>© QuickData — Powered by Paystack</footer>
+
+<!-- Auth Modal -->
+<div class="modal-bg" id="authModal"><div class="modal">
+  <h3 id="authTitle">Login</h3>
+  <label>Email</label><input type="email" id="authEmail">
+  <label>Password</label><input type="password" id="authPass">
+  <button class="btn" id="authBtn" onclick="doAuth()">Login</button>
+  <p class="muted" style="margin-top:12px">
+    <span id="authSwitch" onclick="toggleAuth()">New here? Register</span></p>
+  <div class="error" id="authError"></div>
+  <button class="btn btn-outline" style="margin-top:8px" onclick="closeModal('authModal')">Close</button>
+</div></div>
+
+<!-- Buy Modal -->
+<div class="modal-bg" id="buyModal"><div class="modal">
+  <h3 id="buyTitle">Purchase</h3>
+  <div id="buyDetails" class="muted"></div>
+  <label id="buyFieldLabel">Phone Number / Smartcard (IUC)</label>
+  <input type="text" id="buyTarget" placeholder="e.g. 08012345678">
+  <button class="btn" onclick="confirmBuy()">Pay from Wallet</button>
+  <div class="success" id="buySuccess">✔ Purchase submitted!</div>
+  <div class="error" id="buyError"></div>
+  <button class="btn btn-outline" style="margin-top:8px" onclick="closeModal('buyModal')">Close</button>
+</div></div>
+
+<!-- Fund Modal -->
+<div class="modal-bg" id="fundModal"><div class="modal">
+  <h3>Fund Wallet</h3>
+  <label>Amount (₦, min ₦100)</label>
+  <input type="number" id="fundAmount" placeholder="1000" min="100">
+  <button class="btn" onclick="paystackFund()">Pay with Paystack</button>
+  <button class="btn btn-outline" style="margin-top:8px" onclick="closeModal('fundModal')">Close</button>
+</div></div>
+
+<script>
+/* ============ FIREBASE CONFIG — replace with yours ============ */
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  appId: "YOUR_APP_ID"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+
+/* ============ PAYSTACK PUBLIC KEY — replace ============ */
+const PAYSTACK_PUBLIC_KEY = "pk_test_xxxxxxxxxxxxx";
+
+let currentUser = null, authMode = "login", pendingPurchase = null;
+
+/* ---------- Auth ---------- */
+function openModal(id){ document.getElementById(id).classList.add("open"); }
+function closeModal(id){ document.getElementById(id).classList.remove("open"); }
+function toggleAuth(){
+  authMode = authMode === "login" ? "register" : "login";
+  document.getElementById("authTitle").textContent = authMode === "login" ? "Login" : "Create Account";
+  document.getElementById("authBtn").textContent = authMode === "login" ? "Login" : "Register";
+  document.getElementById("authSwitch").textContent =
+    authMode === "login" ? "New here? Register" : "Have an account? Login";
+}
+function authErr(msg){ const e=document.getElementById("authError"); e.textContent=msg; e.style.display="block"; }
+function doAuth(){
+  document.getElementById("authError").style.display="none";
+  const email = document.getElementById("authEmail").value.trim();
+  const pass  = document.getElementById("authPass").value;
+  if(!email || pass.length < 6) return authErr("Enter a valid email and 6+ char password.");
+  const done = (user)=>{
+    closeModal("authModal");
+    if(pendingPurchase){ const p=pendingPurchase; pendingPurchase=null; openBuy(p); }
+  };
+  if(authMode === "login"){
+    auth.signInWithEmailAndPassword(email,pass).then(r=>done(r.user))
+      .catch(e=>authErr(e.message));
+  } else {
+    auth.createUserWithEmailAndPassword(email,pass).then(r=>{
+      db.ref("users/"+r.user.uid+"/balance").set(0);
+      db.ref("users/"+r.user.uid+"/email").set(email);
+      done(r.user);
+    }).catch(e=>authErr(e.message));
+  }
+}
+function logout(){ auth.signOut(); }
+
+auth.onAuthStateChanged(user=>{
+  currentUser = user;
+  const nav = document.getElementById("navAuth");
+  if(user){
+    nav.innerHTML = '<a href="#" onclick="logout();return false;">Logout</a>';
+    document.getElementById("walletBar").style.display = "flex";
+    db.ref("users/"+user.uid+"/balance").on("value", s=>{
+      document.getElementById("walletBalance").textContent =
+        "₦" + (s.val()||0).toLocaleString(undefined,{minimumFractionDigits:2});
+    });
+  } else {
+    nav.innerHTML = '<a href="#" onclick="openModal(\'authModal\');return false;">Login / Register</a>';
+    document.getElementById("walletBar").style.display = "none";
+  }
+});
+
+/* ---------- Load plans from RTDB ---------- */
+function renderPlans(cat, gridId){
+  db.ref(cat).on("value", snap=>{
+    const grid = document.getElementById(gridId);
+    grid.innerHTML = "";
+    if(!snap.exists()){ grid.innerHTML='<p class="muted">No plans available yet.</p>'; return; }
+    snap.forEach(p=>{
+      const v = p.val();
+      const el = document.createElement("div");
+      el.className = "card";
+      el.innerHTML = `<span class="tag ${v.network||v.tvType||''}">${(v.network||v.tvType||'').toUpperCase()}</span>
+        <h3>${v.name}</h3>
+        <div class="price">₦${Number(v.price).toLocaleString()}</div>
+        <div class="tag">${v.validity||""}</div><br>
+        <button class="btn" style="width:100%">Buy Now</button>`;
+      el.querySelector("button").onclick = ()=>{
+        if(!currentUser){ pendingPurchase = p.key; openModal("authModal"); return; }
+        openBuy(p.key);
+      };
+      grid.appendChild(el);
+    });
+  });
+}
+renderPlans("data_plans","dataGrid");
+renderPlans("tv_plans","tvGrid");
+
+/* ---------- Purchase flow ---------- */
+function openBuy(key){
+  db.ref("data_plans/"+key).once("value").then(s=>{
+    let plan = s.val();
+    if(!plan) return db.ref("tv_plans/"+key).once("value").then(s2=>{
+      plan = s2.val(); if(plan) showBuyModal(key, plan, "tv");
+    });
+    if(plan) showBuyModal(key, plan, "data");
+  });
+}
+function showBuyModal(key, plan, cat){
+  document.getElementById("buyTitle").textContent = plan.name + " — ₦" + plan.price;
+  document.getElementById("buyDetails").textContent =
+    (plan.network||plan.tvType||"").toUpperCase() + (plan.validity ? " • " + plan.validity : "");
+  document.getElementById("buyFieldLabel").textContent =
+    cat === "data" ? "Phone Number" : "Smartcard Number (IUC)";
+  document.getElementById("buySuccess").style.display="none";
+  document.getElementById("buyError").style.display="none";
+  document.getElementById("buyTarget").value="";
+  openModal("buyModal");
+  document.getElementById("buyModal").querySelector(".btn").onclick = ()=>confirmBuy(key, plan, cat);
+}
+function confirmBuy(key, plan, cat){
+  const target = document.getElementById("buyTarget").value.trim();
+  const err = document.getElementById("buyError");
+  err.style.display="none";
+  if(!target || target.length < 5){ err.textContent="Enter a valid number."; err.style.display="block"; return; }
+  db.ref("users/"+currentUser.uid+"/balance").transaction(bal=>{
+    if((bal||0) < plan.price){ err.textContent="Insufficient balance. Fund your wallet."; err.style.display="block"; return; }
+    return bal - plan.price;
+  }, (error, committed)=>{
+    if(!committed) return;
+    // Queue order — admin's configured API (vtu endpoint) is called from admin panel / server.
+    db.ref("orders").push({
+      uid: currentUser.uid, email: currentUser.email, category: cat,
+      planKey: key, planName: plan.name, network: plan.network||plan.tvType,
+      amount: plan.price, target: target, status: "pending",
+      timestamp: Date.now()
+    }).then(()=>{
+      db.ref("users/"+currentUser.uid+"/transactions").push({
+        type:"purchase", amount:-plan.price, desc:plan.name+" ("+target+")", ts:Date.now()
+      });
+      document.getElementById("buySuccess").style.display="block";
+      setTimeout(()=>closeModal("buyModal"), 1200);
+    });
+  });
+}
+
+/* ---------- Paystack funding ---------- */
+function openFund(){ openModal("fundModal"); }
+function paystackFund(){
+  if(!currentUser) return openModal("authModal");
+  const amt = Math.floor(Number(document.getElementById("fundAmount").value));
+  if(!amt || amt < 100) return alert("Minimum funding is ₦100.");
+  const handler = PaystackPop.setup({
+    key: PAYSTACK_PUBLIC_KEY,
+    email: currentUser.email,
+    amount: amt * 100, // kobo
+    currency: "NGN",
+    ref: "FUND-" + Date.now() + "-" + Math.random().toString(36).substr(2,6),
+    callback: function(response){
+      // Credit wallet. NOTE: for production, verify transaction server-side
+      // with your secret key (admin dashboard stores it) before crediting.
+      db.ref("users/"+currentUser.uid+"/balance").transaction(b=>(b||0)+amt);
+      db.ref("users/"+currentUser.uid+"/transactions").push({
+        type:"funding", amount:amt, ref:response.reference, ts:Date.now()
+      });
+      closeModal("fundModal");
+      alert("Wallet funded successfully! Ref: " + response.reference);
+    },
+    onClose: function(){ alert("Payment window closed."); }
+  });
+  handler.openIframe();
+}
+</script>
+</body>
+</html>
