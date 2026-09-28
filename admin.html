@@ -131,7 +131,7 @@ auth.onAuthStateChanged(user=>{
     }
   }).catch(err => showErr("Database read failed: " + err.message));
 });
-}
+
 function tab(name, btn){
   document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
   document.querySelectorAll(".tab-panel").forEach(p=>p.classList.remove("active"));
