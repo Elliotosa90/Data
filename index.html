@@ -224,7 +224,7 @@ function openFund(){ openModal("fundModal"); }
 function paystackFund(){
   if(!currentUser) return openModal("authModal");
   const amt = Math.floor(Number(document.getElementById("fundAmount").value));
-  if(!amt || amt < 500) return alert("Minimum funding is ₦500.");
+  if(!amt || amt < 100) return alert("Minimum funding is ₦100.");
   const handler = PaystackPop.setup({
     key: PAYSTACK_PUBLIC_KEY,
     email: currentUser.email,
