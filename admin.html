@@ -118,38 +118,22 @@ function showErr(msg){
 }
 
 function checkAdmin(user){
-  db.ref("settings/adminUid").once("value").then(s => {
+  db.ref("settings").once("value").then(s => {
 
-    const adminUid = s.val();
-
-    console.log("ADMIN UID IN DB:", adminUid);
+    console.log("SETTINGS EXISTS:", s.exists());
+    console.log("SETTINGS DATA:", s.val());
+    console.log("SETTINGS JSON:", JSON.stringify(s.val()));
     console.log("LOGIN UID:", user.uid);
 
-    if(!adminUid){
-      showErr("Admin UID is not set in settings.");
-      return;
-    }
-
-    if(adminUid !== user.uid){
-      showErr(
-        "UID mismatch.\n" +
-        "Logged in as: " + user.uid + "\n" +
-        "Expected in DB: " + adminUid
-      );
-      return;
-    }
-
-    // UID matches — admin is authenticated
-    console.log("ADMIN VERIFIED");
-
-    document.getElementById("adminAuth").classList.remove("open");
-    document.getElementById("adminUI").style.display = "block";
-
-    listenAll();
+    showErr(
+      "SETTINGS EXISTS: " + s.exists() +
+      "\n\nSETTINGS DATA: " + JSON.stringify(s.val()) +
+      "\n\nLOGIN UID: " + user.uid
+    );
 
   }).catch(err => {
     console.error(err);
-    showErr("ADMIN CHECK ERROR: " + err.message);
+    showErr("READ ERROR: " + err.message);
   });
 }
 
