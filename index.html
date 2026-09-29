@@ -8,7 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-<!-- Paystack -->
+<!-- Paystack v2 -->
 <script src="https://js.paystack.co/v2/inline.js"></script>
 </head>
 <body>
@@ -26,6 +26,7 @@
   <p>MTN • GLO • Airtel data plans • DSTV • GOTV subscriptions — paid from your wallet.</p>
   <div class="wallet-bar" id="walletBar" style="display:none">
     <div class="wallet-chip">Wallet: <span id="walletBalance">₦0.00</span></div>
+    <div class="wallet-chip">Bonus: <span id="bonusBalance">₦0.00</span></div>
     <button class="btn" onclick="openFund()">Fund Wallet</button>
     <button class="btn btn-outline" onclick="logout()">Logout</button>
   </div>
@@ -70,8 +71,9 @@
 <!-- Fund Modal -->
 <div class="modal-bg" id="fundModal"><div class="modal">
   <h3>Fund Wallet</h3>
-  <label>Amount (₦, min ₦100)</label>
+  <label>Amount (₦)</label>
   <input type="number" id="fundAmount" placeholder="1000" min="100">
+  <div class="muted" id="minDepositHint"></div>
   <button class="btn" onclick="paystackFund()">Pay with Paystack</button>
   <button class="btn btn-outline" style="margin-top:8px" onclick="closeModal('fundModal')">Close</button>
 </div></div>
@@ -79,13 +81,11 @@
 <script>
 /* ============ FIREBASE CONFIG — replace with yours ============ */
 const firebaseConfig = {
-  apiKey: "AIzaSyBonWyLqAS-uo_cxSIn29stH7bcAVnQ1qo",
-  authDomain: "datasub-24f2b.firebaseapp.com",
-  databaseURL: "https://datasub-24f2b-default-rtdb.firebaseio.com",
-  projectId: "datasub-24f2b",
-  storageBucket: "datasub-24f2b.firebasestorage.app",
-  messagingSenderId: "270372457052",
-  appId: "1:270372457052:web:c1d1d876f3f4eb86793499"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  appId: "YOUR_APP_ID"
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
@@ -94,11 +94,20 @@ const auth = firebase.auth();
 /* ============ PAYSTACK PUBLIC KEY — replace ============ */
 const PAYSTACK_PUBLIC_KEY = "pk_test_xxxxxxxxxxxxx";
 
-let currentUser = null, authMode = "login", pendingPurchase = null;
+let currentUser = null, authMode = "login", pendingPurchase = null, minDeposit = 100;
 
-/* ---------- Auth ---------- */
+/* Load minimum deposit setting */
+db.ref("settings/bonus/minDeposit").on("value", s=>{
+  if(s.val()) minDeposit = s.val();
+  document.getElementById("minDepositHint").textContent =
+    "Minimum deposit: ₦" + minDeposit.toLocaleString();
+});
+
+/* ---------- Modal helpers ---------- */
 function openModal(id){ document.getElementById(id).classList.add("open"); }
 function closeModal(id){ document.getElementById(id).classList.remove("open"); }
+
+/* ---------- Auth ---------- */
 function toggleAuth(){
   authMode = authMode === "login" ? "register" : "login";
   document.getElementById("authTitle").textContent = authMode === "login" ? "Login" : "Create Account";
@@ -106,7 +115,9 @@ function toggleAuth(){
   document.getElementById("authSwitch").textContent =
     authMode === "login" ? "New here? Register" : "Have an account? Login";
 }
-function authErr(msg){ const e=document.getElementById("authError"); e.textContent=msg; e.style.display="block"; }
+function authErr(msg){
+  const e=document.getElementById("authError"); e.textContent=msg; e.style.display="block";
+}
 function doAuth(){
   document.getElementById("authError").style.display="none";
   const email = document.getElementById("authEmail").value.trim();
@@ -121,14 +132,18 @@ function doAuth(){
       .catch(e=>authErr(e.message));
   } else {
     auth.createUserWithEmailAndPassword(email,pass).then(r=>{
-      db.ref("users/"+r.user.uid+"/balance").set(0);
-      db.ref("users/"+r.user.uid+"/email").set(email);
+      db.ref("settings/bonus/welcomeBonus").once("value").then(wb=>{
+        db.ref("users/"+r.user.uid).set({
+          email: email, balance: 0, bonus: wb.val()||0, hasDeposited: false
+        });
+      });
       done(r.user);
     }).catch(e=>authErr(e.message));
   }
 }
 function logout(){ auth.signOut(); }
 
+/* ---------- Auth state ---------- */
 auth.onAuthStateChanged(user=>{
   currentUser = user;
   const nav = document.getElementById("navAuth");
@@ -138,6 +153,19 @@ auth.onAuthStateChanged(user=>{
     db.ref("users/"+user.uid+"/balance").on("value", s=>{
       document.getElementById("walletBalance").textContent =
         "₦" + (s.val()||0).toLocaleString(undefined,{minimumFractionDigits:2});
+    });
+    db.ref("users/"+user.uid+"/bonus").on("value", s=>{
+      document.getElementById("bonusBalance").textContent =
+        "₦" + (s.val()||0).toLocaleString(undefined,{minimumFractionDigits:2});
+    });
+    /* Unlock welcome bonus automatically on first deposit */
+    db.ref("users/"+user.uid+"/transactions").limitToLast(5).on("child_added", t=>{
+      const tx=t.val();
+      if(tx && tx.type==="funding" && tx.amount>0){
+        db.ref("users/"+user.uid+"/hasDeposited").once("value").then(h=>{
+          if(!h.val()) db.ref("users/"+user.uid+"/hasDeposited").set(true);
+        });
+      }
     });
   } else {
     nav.innerHTML = '<a href="#" onclick="openModal(\'authModal\');return false;">Login / Register</a>';
@@ -198,54 +226,74 @@ function confirmBuy(key, plan, cat){
   const err = document.getElementById("buyError");
   err.style.display="none";
   if(!target || target.length < 5){ err.textContent="Enter a valid number."; err.style.display="block"; return; }
-  db.ref("users/"+currentUser.uid+"/balance").transaction(bal=>{
-    if((bal||0) < plan.price){ err.textContent="Insufficient balance. Fund your wallet."; err.style.display="block"; return; }
-    return bal - plan.price;
-  }, (error, committed)=>{
-    if(!committed) return;
-    // Queue order — admin's configured API (vtu endpoint) is called from admin panel / server.
-    db.ref("orders").push({
-      uid: currentUser.uid, email: currentUser.email, category: cat,
-      planKey: key, planName: plan.name, network: plan.network||plan.tvType,
-      amount: plan.price, target: target, status: "pending",
-      timestamp: Date.now()
-    }).then(()=>{
-      db.ref("users/"+currentUser.uid+"/transactions").push({
-        type:"purchase", amount:-plan.price, desc:plan.name+" ("+target+")", ts:Date.now()
+  db.ref("users/"+currentUser.uid).once("value").then(u=>{
+    const acct = u.val()||{};
+    const bal = acct.balance||0, bonus = acct.bonus||0, deposited = !!acct.hasDeposited;
+    const usableBonus = deposited ? bonus : 0;
+    const usable = bal + usableBonus;
+
+    if(!deposited && usable < plan.price && bonus > 0){
+      err.textContent = "Make a deposit first to use your welcome bonus.";
+      err.style.display="block"; return;
+    }
+    if(usable < plan.price){
+      err.textContent = "Insufficient balance. Fund your wallet.";
+      err.style.display="block"; return;
+    }
+    /* Deduct from bonus first, then main balance */
+    const useBonus = Math.min(usableBonus, plan.price);
+    const useBal   = plan.price - useBonus;
+    db.ref("users/"+currentUser.uid+"/bonus").set(bonus - useBonus);
+    db.ref("users/"+currentUser.uid+"/balance").transaction(b=>(b||0)-useBal, (error, committed)=>{
+      if(!committed) return;
+      /* Queue order — admin's configured API (vtu endpoint) fulfils it. */
+      db.ref("orders").push({
+        uid: currentUser.uid, email: currentUser.email, category: cat,
+        planKey: key, planName: plan.name, network: plan.network||plan.tvType,
+        amount: plan.price, target: target, status: "pending",
+        timestamp: Date.now()
+      }).then(()=>{
+        db.ref("users/"+currentUser.uid+"/transactions").push({
+          type:"purchase", amount:-plan.price, desc:plan.name+" ("+target+")", ts:Date.now()
+        });
+        document.getElementById("buySuccess").style.display="block";
+        setTimeout(()=>closeModal("buyModal"), 1200);
       });
-      document.getElementById("buySuccess").style.display="block";
-      setTimeout(()=>closeModal("buyModal"), 1200);
     });
   });
 }
 
-/* ---------- Paystack funding ---------- */
-function openFund(){ openModal("fundModal"); }
+/* ---------- Paystack funding (v2 SDK) ---------- */
+function openFund(){
+  document.getElementById("fundAmount").value = "";
+  openModal("fundModal");
+}
 function paystackFund(){
   if(!currentUser) return openModal("authModal");
   const amt = Math.floor(Number(document.getElementById("fundAmount").value));
-  if(!amt || amt < 100) return alert("Minimum funding is ₦100.");
-  const handler = PaystackPop.setup({
-    key: PAYSTACK_PUBLIC_KEY,
-    email: currentUser.email,
-    amount: amt * 100, // kobo
-    currency: "NGN",
-    ref: "FUND-" + Date.now() + "-" + Math.random().toString(36).substr(2,6),
-    callback: function(response){
-      // Credit wallet. NOTE: for production, verify transaction server-side
-      // with your secret key (admin dashboard stores it) before crediting.
-      db.ref("users/"+currentUser.uid+"/balance").transaction(b=>(b||0)+amt);
-      db.ref("users/"+currentUser.uid+"/transactions").push({
-        type:"funding", amount:amt, ref:response.reference, ts:Date.now()
-      });
-      closeModal("fundModal");
-      alert("Wallet funded successfully! Ref: " + response.reference);
-    },
-    onClose: function(){ alert("Payment window closed."); }
-  });
-  handler.openIframe();
+  if(!amt || amt < minDeposit)
+    return alert("Minimum funding is ₦" + minDeposit + ".");
+  try {
+    const paystack = PaystackPop.init({
+      key: PAYSTACK_PUBLIC_KEY,
+      email: currentUser.email
+    });
+    paystack.newTransaction({
+      amount: amt * 100, /* kobo */
+      onSuccess: function(response){
+        db.ref("users/"+currentUser.uid+"/balance").transaction(b=>(b||0)+amt);
+        db.ref("users/"+currentUser.uid+"/transactions").push({
+          type:"funding", amount:amt, ref:response.reference, ts:Date.now()
+        });
+        closeModal("fundModal");
+        alert("Wallet funded successfully! Ref: " + response.reference);
+      },
+      onCancel: function(){ alert("Payment window closed."); }
+    });
+  } catch(e) {
+    alert("Payment error: " + e.message);
+  }
 }
-
 </script>
 </body>
 </html>
