@@ -100,6 +100,7 @@
 const firebaseConfig = {
   apiKey: "AIzaSyATY2QLxQsKuq_Rw4ydq1-14JyNgZC_B_0",
   authDomain: "data-e3d73.firebaseapp.com",
+  databaseURL: "https://data-e3d73-default-rtdb.firebaseio.com",
   projectId: "data-e3d73",
   storageBucket: "data-e3d73.firebasestorage.app",
   messagingSenderId: "100478829748",
@@ -116,18 +117,7 @@ function showErr(msg){
   e.textContent = msg; e.style.display = "block";
 }
 
-function adminLogin(){
-  const e=document.getElementById("aErr"); e.style.display="none";
-  if(!document.getElementById("aEmail").value || !document.getElementById("aPass").value)
-    return showErr("Enter email and password.");
-  auth.signInWithEmailAndPassword(
-    document.getElementById("aEmail").value,
-    document.getElementById("aPass").value
-  ).catch(x => showErr("Login failed: " + x.message));
-}
-
-auth.onAuthStateChanged(user=>{
-  if(!user) return;
+function checkAdmin(user){
   db.ref("settings/adminUid").once("value").then(s=>{
     if(s.val() === user.uid){
       document.getElementById("adminUI").style.display="block";
@@ -140,6 +130,22 @@ auth.onAuthStateChanged(user=>{
               "\nExpected in DB: " + (s.val() || "NOTHING SET"));
     }
   }).catch(err => showErr("Database read failed: " + err.message));
+}
+
+function adminLogin(){
+  const e=document.getElementById("aErr"); e.style.display="none";
+  if(!document.getElementById("aEmail").value || !document.getElementById("aPass").value)
+    return showErr("Enter email and password.");
+  auth.signInWithEmailAndPassword(
+    document.getElementById("aEmail").value,
+    document.getElementById("aPass").value
+  ).then(cred => checkAdmin(cred.user))
+   .catch(x => showErr("Login failed: " + x.message));
+}
+
+auth.onAuthStateChanged(user=>{
+  if(!user) return;
+  checkAdmin(user);
 });
 
 function tab(name, btn){
