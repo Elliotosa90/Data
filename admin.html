@@ -163,9 +163,15 @@ function adminLogin(){
    .catch(x => showErr("Login failed: " + x.message));
 }
 
-auth.onAuthStateChanged(user=>{
-  if(!user) return;
-  checkAdmin(user);
+auth.onAuthStateChanged(user => {
+
+  if(user){
+    checkAdmin(user);
+  } else {
+    document.getElementById("adminUI").style.display = "none";
+    document.getElementById("adminAuth").classList.add("open");
+  }
+
 });
 
 function tab(name, btn){
