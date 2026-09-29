@@ -118,29 +118,21 @@ function showErr(msg){
 }
 
 function checkAdmin(user){
-  console.log("LOGGED-IN UID:", user.uid);
-  console.log("DATABASE URL:", db.ref().toString());
-  
-  db.ref("settings/adminUid").once("value").then(s=>{
-    console.log("adminUid exists:", s.exists());
-    console.log("adminUid value:", s.val());
+  db.ref("settings").once("value").then(s => {
 
-    if(s.val() === user.uid){
-      document.getElementById("adminUI").style.display="block";
-      document.getElementById("adminAuth").classList.remove("open");
-      document.getElementById("navAuth").innerHTML =
-        '<a href="#" onclick="auth.signOut();return false;">Logout</a>';
-      listenAll();
-    } else {
-      showErr(
-        "UID mismatch.\n" +
-        "Logged in as: " + user.uid +
-        "\nExpected in DB: " + (s.val() || "NOTHING SET")
-      );
-    }
-  }).catch(err=>{
-    console.error("DATABASE ERROR:", err);
-    showErr("Database read failed: " + err.message);
+    console.log("SETTINGS EXISTS:", s.exists());
+    console.log("SETTINGS DATA:", s.val());
+    console.log("LOGIN UID:", user.uid);
+
+    showErr(
+      "SETTINGS EXISTS: " + s.exists() +
+      "\nSETTINGS DATA: " + JSON.stringify(s.val()) +
+      "\nLOGIN UID: " + user.uid
+    );
+
+  }).catch(err => {
+    console.error(err);
+    showErr("READ ERROR: " + err.message);
   });
 }
 
