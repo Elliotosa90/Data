@@ -56,6 +56,13 @@
   <!-- APIs -->
   <div class="tab-panel" id="tab-apis">
     <div class="admin-form">
+      <h2 class="sec">Bonus & Deposit Settings</h2>
+      <label>Minimum Deposit (₦)</label><input id="bMin" type="number" placeholder="100">
+      <label>Welcome Bonus (₦, 0 to disable)</label><input id="bWelcome" type="number" placeholder="100">
+      <button class="btn" onclick="saveBonus()">Save Bonus Settings</button>
+      <div class="success" id="bOk">✔ Saved</div>
+    </div>
+    <div class="admin-form" style="margin-top:20px">
       <h2 class="sec">VTU / API Settings</h2>
       <label>Provider Name (e.g. Clubkonnect, VTPass)</label><input id="apiName">
       <label>API Endpoint URL</label><input id="apiUrl" placeholder="https://provider.com/api/topup">
@@ -82,7 +89,7 @@
   <!-- USERS -->
   <div class="tab-panel" id="tab-users">
     <h2 class="sec">Users</h2>
-    <table><thead><tr><th>Email</th><th>Balance</th></tr></thead>
+    <table><thead><tr><th>Email</th><th>Balance</th><th>Bonus</th><th>Deposited?</th></tr></thead>
     <tbody id="usersTable"></tbody></table>
   </div>
 </div>
@@ -91,24 +98,22 @@
 
 <script>
 const firebaseConfig = {
-  apiKey: "AIzaSyBonWyLqAS-uo_cxSIn29stH7bcAVnQ1qo",
-  authDomain: "datasub-24f2b.firebaseapp.com",
-  databaseURL: "https://datasub-24f2b-default-rtdb.firebaseio.com",
-  projectId: "datasub-24f2b",
-  storageBucket: "datasub-24f2b.firebasestorage.app",
-  messagingSenderId: "270372457052",
-  appId: "1:270372457052:web:c1d1d876f3f4eb86793499"
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_PROJECT.firebaseapp.com",
+  databaseURL: "https://YOUR_PROJECT-default-rtdb.firebaseio.com",
+  projectId: "YOUR_PROJECT",
+  appId: "YOUR_APP_ID"
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const auth = firebase.auth();
 
 function openModal(id){ document.getElementById(id).classList.add("open"); }
-  function showErr(msg){
+
+function showErr(msg){
   const e=document.getElementById("aErr");
   e.textContent = msg; e.style.display = "block";
 }
-
 
 function adminLogin(){
   const e=document.getElementById("aErr"); e.style.display="none";
@@ -155,6 +160,15 @@ function addPlan(){
   document.getElementById("pOk").style.display="block";
   setTimeout(()=>document.getElementById("pOk").style.display="none",1500);
 }
+
+function saveBonus(){
+  const min = Number(document.getElementById("bMin").value)||0;
+  const wel = Number(document.getElementById("bWelcome").value)||0;
+  db.ref("settings/bonus").set({ minDeposit: min, welcomeBonus: wel })
+    .then(()=>{document.getElementById("bOk").style.display="block";
+      setTimeout(()=>document.getElementById("bOk").style.display="none",1500);});
+}
+
 function listenAll(){
   ["data_plans","tv_plans"].forEach(cat=>{
     db.ref(cat).on("value", snap=>{
@@ -182,8 +196,15 @@ function listenAll(){
     const tb=document.getElementById("usersTable"); tb.innerHTML="";
     snap.forEach(u=>{
       tb.insertAdjacentHTML("beforeend",
-        `<tr><td>${u.val().email||u.key}</td><td>₦${(u.val().balance||0).toLocaleString()}</td></tr>`);
+        `<tr><td>${u.val().email||u.key}</td><td>₦${(u.val().balance||0).toLocaleString()}</td>
+        <td>₦${(u.val().bonus||0).toLocaleString()}</td>
+        <td>${u.val().hasDeposited?"Yes":"No"}</td></tr>`);
     });
+  });
+  db.ref("settings/bonus").once("value").then(s=>{
+    const v=s.val()||{};
+    document.getElementById("bMin").value=v.minDeposit!=null?v.minDeposit:100;
+    document.getElementById("bWelcome").value=v.welcomeBonus!=null?v.welcomeBonus:0;
   });
   db.ref("settings/api").once("value").then(s=>{
     const v=s.val()||{};
