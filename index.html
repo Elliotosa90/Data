@@ -25,10 +25,15 @@
   <h1>Buy <b>Data</b> & Recharge <b>TV</b> Instantly</h1>
   <p>MTN • GLO • Airtel data plans • DSTV • GOTV subscriptions — paid from your wallet.</p>
   <div class="wallet-bar" id="walletBar" style="display:none">
+    <div class="wallet-chip" id="userEmailChip">👤 <span id="userEmail"></span></div>
     <div class="wallet-chip">Wallet: <span id="walletBalance">₦0.00</span></div>
     <div class="wallet-chip">Bonus: <span id="bonusBalance">₦0.00</span></div>
     <button class="btn" onclick="openFund()">Fund Wallet</button>
     <button class="btn btn-outline" onclick="logout()">Logout</button>
+  </div>
+  <div class="wallet-chip" id="bonusNotice" style="display:none;max-width:520px;margin:0 auto 10px;
+      border-color:#ffd400;color:#ffd400;font-size:.85rem">
+    ⓘ Your welcome bonus is locked. It becomes usable after you make your first deposit.
   </div>
 </div>
 
@@ -42,7 +47,21 @@
   <div class="grid" id="tvGrid"><p class="muted">Loading plans…</p></div>
 </section>
 
-<footer>© QuickData — Powered by Paystack</footer>
+<section class="services" id="history" style="display:none">
+  <h2 class="sec">My Purchases</h2>
+  <table><thead><tr><th>Date</th><th>Plan</th><th>Target</th><th>Amount</th></tr></thead>
+  <tbody id="purchaseHistory"><tr><td colspan="4" class="muted">No purchases yet.</td></tr></tbody></table>
+  <h2 class="sec" style="margin-top:34px">Deposits & Credits</h2>
+  <table><thead><tr><th>Date</th><th>Type</th><th>Reference</th><th>Amount</th></tr></thead>
+  <tbody id="depositHistory"><tr><td colspan="4" class="muted">No deposits yet.</td></tr></tbody></table>
+</section>
+
+<footer>
+  <p>© QuickData — Powered by Paystack</p>
+  <p class="muted">Email: <a href="mailto:support@quickdata.ng" style="color:#ffd400">support@quickdata.ng</a>
+   &nbsp;•&nbsp; Phone: <a href="tel:+2348012345678" style="color:#ffd400">+234 801 234 5678</a>
+   &nbsp;•&nbsp; WhatsApp: +234 801 234 5678</p>
+</footer>
 
 <!-- Auth Modal -->
 <div class="modal-bg" id="authModal"><div class="modal">
@@ -83,6 +102,7 @@
 const firebaseConfig = {
   apiKey: "AIzaSyATY2QLxQsKuq_Rw4ydq1-14JyNgZC_B_0",
   authDomain: "data-e3d73.firebaseapp.com",
+  databaseURL: "https://data-e3d73-default-rtdb.firebaseio.com",
   projectId: "data-e3d73",
   storageBucket: "data-e3d73.firebasestorage.app",
   messagingSenderId: "100478829748",
@@ -144,6 +164,42 @@ function doAuth(){
 }
 function logout(){ auth.signOut(); }
 
+/* ---------- History rendering ---------- */
+let txListenerRef = null;
+function listenHistory(uid){
+  if(txListenerRef) db.ref("users/"+uid+"/transactions").off("value", txListenerRef);
+  txListenerRef = db.ref("users/"+uid+"/transactions").on("value", snap=>{
+    const buys = [], deps = [];
+    snap.forEach(t=>{
+      const v = t.val();
+      if(v.type === "purchase") buys.push(v);
+      else if(v.type === "funding" || v.type === "admin_credit") deps.push(v);
+    });
+    buys.reverse(); deps.reverse();
+
+    const pb = document.getElementById("purchaseHistory");
+    pb.innerHTML = buys.length ? "" :
+      '<tr><td colspan="4" class="muted">No purchases yet.</td></tr>';
+    buys.forEach(v=>{
+      pb.insertAdjacentHTML("beforeend",
+        `<tr><td>${new Date(v.ts).toLocaleString()}</td><td>${v.desc||""}</td>
+        <td>${v.desc? v.desc.match(/\((.*)\)/)?.[1] || "" : ""}</td>
+        <td style="color:var(--red)">−₦${Math.abs(v.amount).toLocaleString()}</td></tr>`);
+    });
+
+    const db_ = document.getElementById("depositHistory");
+    db_.innerHTML = deps.length ? "" :
+      '<tr><td colspan="4" class="muted">No deposits yet.</td></tr>';
+    deps.forEach(v=>{
+      db_.insertAdjacentHTML("beforeend",
+        `<tr><td>${new Date(v.ts).toLocaleString()}</td>
+        <td>${v.type==="funding"?"Deposit":"Admin Credit"}</td>
+        <td class="muted">${v.ref||"—"}</td>
+        <td style="color:var(--green)">+₦${v.amount.toLocaleString()}</td></tr>`);
+    });
+  });
+}
+
 /* ---------- Auth state ---------- */
 auth.onAuthStateChanged(user=>{
   currentUser = user;
@@ -151,6 +207,8 @@ auth.onAuthStateChanged(user=>{
   if(user){
     nav.innerHTML = '<a href="#" onclick="logout();return false;">Logout</a>';
     document.getElementById("walletBar").style.display = "flex";
+    document.getElementById("history").style.display = "block";
+    document.getElementById("userEmail").textContent = user.email;
     db.ref("users/"+user.uid+"/balance").on("value", s=>{
       document.getElementById("walletBalance").textContent =
         "₦" + (s.val()||0).toLocaleString(undefined,{minimumFractionDigits:2});
@@ -158,6 +216,11 @@ auth.onAuthStateChanged(user=>{
     db.ref("users/"+user.uid+"/bonus").on("value", s=>{
       document.getElementById("bonusBalance").textContent =
         "₦" + (s.val()||0).toLocaleString(undefined,{minimumFractionDigits:2});
+    });
+    /* Bonus notice: show while bonus exists and no deposit yet */
+    db.ref("users/"+user.uid+"/hasDeposited").on("value", h=>{
+      const show = !h.val();
+      document.getElementById("bonusNotice").style.display = show ? "block" : "none";
     });
     /* Unlock welcome bonus automatically on first deposit */
     db.ref("users/"+user.uid+"/transactions").limitToLast(5).on("child_added", t=>{
@@ -168,9 +231,12 @@ auth.onAuthStateChanged(user=>{
         });
       }
     });
+    listenHistory(user.uid);
   } else {
     nav.innerHTML = '<a href="#" onclick="openModal(\'authModal\');return false;">Login / Register</a>';
     document.getElementById("walletBar").style.display = "none";
+    document.getElementById("history").style.display = "none";
+    document.getElementById("bonusNotice").style.display = "none";
   }
 });
 
